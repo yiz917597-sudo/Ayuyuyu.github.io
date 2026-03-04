@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>麻将胡了</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a0f0a;font-family:Arial,"Microsoft Yahei";padding:10px;color:#fff}
+.main{max-width:360px;margin:0 auto}
+.head{display:flex;justify-content:space-between;margin-bottom:8px}
+.balance{color:#ffd700;font-size:16px}
+.bet-box{display:flex;gap:4px;margin:8px 0}
+.bet{width:44px;height:36px;display:flex;align-items:center;justify-content:center;background:#443;border-radius:6px;color:#ffd700;font-weight:bold}
+.bet.active{background:#c41e3a}
+.board{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:10px 0}
+.tile{aspect-ratio:1;background:#fff;color:#000;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:16px;position:relative}
+.tile.gold{background:linear-gradient(45deg,#ffd700,#ffed4e)}
+.tile.yuanbao::after{content:"元宝";position:absolute;font-size:10px;color:red}
+.anim{transition:all 0.4s ease}
+.btn-bar{display:flex;gap:8px;margin-top:10px}
+button{flex:1;padding:10px 0;border-radius:8px;border:none;background:#c41e3a;color:#fff;font-weight:bold}
+button.speed{background:#666}
+.multi{text-align:center;margin:6px 0;color:#ffd700}
+</style>
+</head>
+
+<body>
+<div class="main">
+  <div class="head">
+    <div class="balance">余额：<span id="money">10000</span></div>
+    <div>倍数：<span id="mult">1</span>倍</div>
+  </div>
+
+  <div class="bet-box">
+    <div class="bet active" data-val="1">1</div>
+    <div class="bet" data-val="2">2</div>
+    <div class="bet" data-val="3">3</div>
+    <div class="bet" data-val="4">4</div>
+    <div class="bet" data-val="5">5</div>
+  </div>
+
+  <div class="multi">连消：第<span id="step">1</span>次</div>
+  <div class="board" id="board"></div>
+
+  <div class="btn-bar">
+    <button id="speedBtn">极速旋转</button>
+    <button id="spinBtn">旋转</button>
+  </div>
+</div>
+
+<script>
+// ====================== 严格按你的规则 ======================
+let state = {
+  balance: 10000,
+  bet: 1,
+  combo: 1,
+  speed: false,
+  anim: true
+}
+
+const tiles = ['一万','二万','五万','二条','三条','五筒','白板','发财'];
+
+// 随机牌
+function randTile() {
+  const t = tiles[Math.floor(Math.random()*tiles.length)];
+  return {
+    text: t,
+    gold: Math.random() < 0.15,
+    yuanbao: false
+  };
+}
+
+// 生成棋盘 4×5
+function makeBoard() {
+  let b = [];
+  for(let r=0;r<4;r++){
+    let row = [];
+    for(let c=0;c<5;c++) row.push(randTile());
+    b.push(row);
+  }
+  return b;
+}
+
+// 渲染
+function render() {
+  document.getElementById('money').innerText = state.balance;
+  document.getElementById('mult').innerText = 
+    state.combo===1 ? 1 :
+    state.combo===2 ? 2 :
+    state.combo===3 ? 3 :
+    state.combo>=4 ? 5 : 1;
+  document.getElementById('step').innerText = state.combo;
+
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  for(let r=0;r<4;r++){
+    for(let c=0;c<5;c++){
+      const d = window.GAME_BOARD[r][c];
+      const div = document.createElement('div');
+      div.className = 'tile' + (state.anim ? ' anim' : '') + (d.gold ? ' gold' : '') + (d.yuanbao ? ' yuanbao' : '');
+      div.innerText = d.text;
+      div.dataset.r = r;
+      div.dataset.c = c;
+      div.onclick = ()=>clickTile(r,c);
+      board.appendChild(div);
+    }
+  }
+}
+
+// 检查前三列是否可消
+function canClear(r,c) {
+  if(c<0 || c>=5 || r<0 || r>=4) return false;
+  const row = window.GAME_BOARD[r];
+  if(!row[0] || !row[1] || !row[2]) return false;
+  const t0 = row[0].gold ? 'any' : row[0].text;
+  const t1 = row[1].gold ? 'any' : row[1].text;
+  const t2 = row[2].gold ? 'any' : row[2].text;
+  if(t0==='any' || t1==='any' || t2==='any') return true;
+  return t0===t1 && t1===t2;
+}
+
+// 消除一行前三列
+function doClear(r) {
+  const row = window.GAME_BOARD[r];
+  let hasGold = false;
+  if(row[0].gold || row[1].gold || row[2].gold) hasGold = true;
+
+  row[0] = null;
+  row[1] = null;
+  row[2] = null;
+
+  if(hasGold){
+    row[2] = {text:'元宝', gold:true, yuanbao:true};
+  }
+
+  // 连消升级
+  state.combo++;
+  if(state.combo>4) state.combo=4;
+
+  // 结算
+  let mult = 
+    state.combo===1 ? 1 :
+    state.combo===2 ? 2 :
+    state.combo===3 ? 3 :
+    state.combo>=4 ? 5 : 1;
+  let win = state.bet * mult;
+  state.balance += win;
+}
+
+// 下落
+function fallAll() {
+  for(let c=0;c<5;c++){
+    let col = [];
+    for(let r=0;r<4;r++){
+      if(window.GAME_BOARD[r][c]) col.push(window.GAME_BOARD[r][c]);
+    }
+    let newCol = [];
+    while(newCol.length < 4) newCol.unshift(col.pop() || randTile());
+    for(let r=0;r<4;r++) window.GAME_BOARD[r][c] = newCol[r];
+  }
+}
+
+// 点击牌
+function clickTile(r,c) {
+  if(!canClear(r,c)) return;
+  doClear(r);
+  fallAll();
+  render();
+}
+
+// 旋转
+document.getElementById('spinBtn').onclick = ()=>{
+  if(state.balance < state.bet) return alert('余额不足');
+  state.balance -= state.bet;
+  state.combo = 1;
+  window.GAME_BOARD = makeBoard();
+  render();
+}
+
+// 极速旋转：切换动画
+document.getElementById('speedBtn').onclick = ()=>{
+  state.speed = !state.speed;
+  state.anim = !state.speed;
+  document.getElementById('speedBtn').innerText = state.speed ? '正常旋转' : '极速旋转';
+  render();
+}
+
+// 切换下注
+document.querySelectorAll('.bet').forEach(el=>{
+  el.onclick = ()=>{
+    document.querySelectorAll('.bet').forEach(e=>e.classList.remove('active'));
+    el.classList.add('active');
+    state.bet = parseInt(el.dataset.val);
+  }
+})
+
+// 开始
+window.GAME_BOARD = makeBoard();
+render();
+</script>
+</body>
+</html>
